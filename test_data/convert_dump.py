@@ -17,8 +17,6 @@ def process_forward_dump(dump_path: Path, output_path: Path):
     arg_names = [
         'sigma', 
         'weight_background', 
-        # 'anchors3D',
-        # 'anchor_scales',
         'bg', 
         'means3D', 
         'colors_precomp', 
@@ -43,8 +41,6 @@ def process_forward_dump(dump_path: Path, output_path: Path):
     ]
     for tensor, name in zip(data, arg_names):
         save_tensor(tensor, str(output_path / name) + ".pt")
-    # save_tensor(torch.tensor([]), str(output_path / 'sh') + ".pt")
-    # save_tensor(int(3), str(output_path / 'sh_degree') + ".pt")
 
 
 def process_backward_dump(dump_path: Path, output_path: Path):
@@ -52,17 +48,15 @@ def process_backward_dump(dump_path: Path, output_path: Path):
     data = torch.load(dump_path, weights_only=False)
     arg_names = [
         "sigma",
-        "error_map",
         "render_image",
-        "opacity_weight",
         "opacities",
+        "vi",
         "bg",
         "means3D",
         "radii",
         "colors_precomp",
         "scales",
         "rotations",
-        "scene_radii",
         "scale_modifier",
         "cov3Ds_precomp",
         "viewmatrix",
@@ -77,7 +71,8 @@ def process_backward_dump(dump_path: Path, output_path: Path):
         "num_rendered",
         "binningBuffer",
         "imgBuffer",
-        "debug"
+        "debug",
+        'if_depth_correct'
     ]
     for tensor, name in zip(data, arg_names):
         save_tensor(tensor, str(output_path / name) + ".pt")

@@ -8,9 +8,9 @@
             "name": "Debug",
             "type": "cuda-gdb",
             "request": "launch",
-            "program": "${workspaceFolder}/build-CUDA/rasterizer",
-            "cwd": "${workspaceFolder}/build-CUDA"
-        },        
+            "program": "${workspaceFolder}/build/rasterizer",
+            "cwd": "${workspaceFolder}/build"
+        },
         {
             "name": "Convert dump",
             "type": "debugpy",
