@@ -73,7 +73,7 @@ __global__ void duplicateWithKeys(
 	const float2* points_xy,
 	const float* depths,
 	const uint32_t* offsets,
-	uint64_t* gaussian_keys_unsorted,
+	uint32_t* gaussian_keys_unsorted,
 	uint32_t* gaussian_values_unsorted,
 	int* radii,
 	dim3 grid)
@@ -100,9 +100,9 @@ __global__ void duplicateWithKeys(
 		{
 			for (int x = rect_min.x; x < rect_max.x; x++)
 			{
-				uint64_t key = y * grid.x + x;
-				key <<= 32;
-				key |= *((uint32_t*)&depths[idx]);
+				uint32_t key = y * grid.x + x;
+				// key <<= 32;
+				// key |= *((uint32_t*)&depths[idx]);
 				gaussian_keys_unsorted[off] = key;
 				gaussian_values_unsorted[off] = idx;
 				off++;
@@ -114,20 +114,20 @@ __global__ void duplicateWithKeys(
 // Check keys to see if it is at the start/end of one tile's range in 
 // the full sorted list. If yes, write start/end of this tile. 
 // Run once per instanced (duplicated) Gaussian ID.
-__global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* ranges)
+__global__ void identifyTileRanges(int L, uint32_t* point_list_keys, uint2* ranges)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= L)
 		return;
 
 	// Read tile ID from key. Update start/end of tile range if at limit.
-	uint64_t key = point_list_keys[idx];
-	uint32_t currtile = key >> 32;
+	uint32_t key = point_list_keys[idx];
+	uint32_t currtile = key;
 	if (idx == 0)
 		ranges[currtile].x = 0;
 	else
 	{
-		uint32_t prevtile = point_list_keys[idx - 1] >> 32;
+		uint32_t prevtile = point_list_keys[idx - 1];
 		if (currtile != prevtile)
 		{
 			ranges[prevtile].y = idx;
@@ -323,7 +323,7 @@ int CudaRasterizer::Rasterizer::forward(
 		gs_binningState.sorting_size,
 		gs_binningState.point_list_keys_unsorted, gs_binningState.point_list_keys,
 		gs_binningState.point_list_unsorted, gs_binningState.point_list,
-		num_rendered_gs, 0, 32 + bit), debug)
+		num_rendered_gs, 0, bit), debug)
 
 	CHECK_CUDA(cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2)), debug);
 
