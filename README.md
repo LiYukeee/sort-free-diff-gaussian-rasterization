@@ -6,12 +6,7 @@ This repository encompasses the differentiable Gaussian rasterization component 
 
 Not only does it incorporate the rasterization segment callable from Python, consistent with the original usage, but it also furnishes test data and the `main.cu` file to facilitate the debugging of CUDA code.
 
----
-
-As you can see, there is still a sorting operation `cub::DeviceRadixSort::SortPairs` in `rasterizer_impl.cu`, but in fact, sorting is used here instead of classification, which means making the tiles in `point_list_keys` ordered. 
-
-The sorting bits are still from `0` to `32+bit`, you can change it to from `32` to `32+bit`, that is, only sort the tiles, which has no effect on the rendering result.
-
+We continue to use a tile-based rendering method same as 3DGS. The code still includes a Radix Sort, but we have removed the GS depth component from the keys required by the Radix Sort. This means that sorting is now based solely on the tile ID to which the GS belongs. This approach is a form of lazy approach, using sorting as a substitute for classification. While this change may impact performance, it will not affect rendering quality.
 
 ## Installation
 
