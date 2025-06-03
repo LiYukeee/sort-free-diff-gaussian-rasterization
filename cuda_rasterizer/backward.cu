@@ -166,8 +166,8 @@ __global__ void computeCov2DCUDA(int P,
 	float* dL_dcov)
 {
 	auto idx = cg::this_grid().thread_rank();
-	// if (idx >= P || !(radii[idx] > 0))  // gaussian search
-	if (idx >= P || !valid_gs[idx])  // anchor search
+	// if (idx >= P || !(radii[idx] > 0))
+	if (idx >= P || !valid_gs[idx])
 		return;
 
 	// Reading location of 3D covariance for this Gaussian
@@ -374,7 +374,7 @@ __global__ void preprocessCUDA(
 	const float* proj,
 	const glm::vec3* campos,
 	const float sigma,
-	float* dL_dopacity_weight,
+	float* dL_dvi,
 	const float3* dL_dmean2D,
 	glm::vec3* dL_dmeans,
 	float* dL_dcolor,
@@ -385,8 +385,8 @@ __global__ void preprocessCUDA(
 	glm::vec4* dL_drot)
 {
 	auto idx = cg::this_grid().thread_rank();
-	// if (idx >= P || !(radii[idx] > 0))  // gaussian search
-	if (idx >= P || !valid_gs[idx])  // anchor search
+	// if (idx >= P || !(radii[idx] > 0))
+	if (idx >= P || !valid_gs[idx])
 		return;
 
 	// dense_score[idx] = dense_score[idx] * max(min(depths[idx] / scene_radii, 1.0f), 0.0f) * max(min(depths[idx] / scene_radii, 1.0f), 0.0f);
@@ -443,7 +443,6 @@ renderCUDA(
 	const float* __restrict__ bg_color,
 	const float2* __restrict__ points_xy_image,
 	const float4* __restrict__ conic_opacity,
-	const float * __restrict__ alpha_weight,
 	const float* __restrict__ colors,
 	const float* __restrict__ weight_sum,
 	const float* __restrict__ dL_dpixels,
@@ -475,7 +474,6 @@ renderCUDA(
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
-	__shared__ float collected_alpha_weight[BLOCK_SIZE];
 
 
 	const float WS = inside ? weight_sum[pix_id] : 0.0f;
@@ -524,7 +522,6 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
-			collected_alpha_weight[block.thread_rank()] = alpha_weight[coll_id];
 			for (int ch = 0; ch < C; ch++)
 				collected_colors[ch * BLOCK_SIZE + block.thread_rank()] = colors[coll_id * C + ch];
 		}
@@ -551,7 +548,6 @@ renderCUDA(
 
 			const int global_id = collected_id[j];
 
-			alpha *= collected_alpha_weight[j];
 
 			if(alpha > max_alpha)
 				max_alpha = alpha;
@@ -578,7 +574,7 @@ renderCUDA(
 
 			//////////others//////////
 			// Helpful reusable temporary variables
-			const float dL_dG = con_o.w * collected_alpha_weight[j] * dL_dalpha;
+			const float dL_dG = con_o.w * dL_dalpha;
 			const float gdx = G * d.x;
 			const float gdy = G * d.y;
 			const float dG_ddelx = -gdx * con_o.x - gdy * con_o.y;
@@ -616,7 +612,7 @@ __global__ void computeGradOpacitySigmaCUDA(
 	const float* opacities,
 	const float* vi,
 	float* dL_dopacity,  // actually dL_d( opacity_i * v_i * (1 - depth_i/sigma))
-	float* dL_dopacity_weight,
+	float* dL_dvi, // dL_dvi
 	float* dL_ddepth,
 	float* dL_dsigma
 ){
@@ -631,15 +627,15 @@ __global__ void computeGradOpacitySigmaCUDA(
 	}else{
 		depth_correct = 1.0f;
 	}
-	const float c_opacity_weight = vi[idx];
+	const float c_vi = vi[idx];
 	const float c_d_alpha = dL_dopacity[idx];
 	const float c_opacity_original = opacities[idx];
 	
-	dL_dopacity[idx] = c_d_alpha * depth_correct * c_opacity_weight;
-	dL_dopacity_weight[idx] = c_d_alpha * c_opacity_original * depth_correct;
+	dL_dopacity[idx] = c_d_alpha * depth_correct * c_vi;
+	dL_dvi[idx] = c_d_alpha * c_opacity_original * depth_correct;
 	if (if_depth_correct){
-		dL_dsigma[idx] = c_d_alpha * c_opacity_weight * c_opacity_original * c_depth / (sigma * sigma);
-		dL_ddepth[idx] = c_d_alpha * c_opacity_original * c_opacity_weight * ( -1 / sigma);
+		dL_dsigma[idx] = c_d_alpha * c_vi * c_opacity_original * c_depth / (sigma * sigma);
+		dL_ddepth[idx] = c_d_alpha * c_opacity_original * c_vi * ( -1 / sigma);
 	}else{
 		dL_dsigma[idx] = 0.0f;
 		dL_ddepth[idx] = 0.0f;
@@ -655,7 +651,7 @@ void BACKWARD::preprocess(
 	const float* opacities,
 	const float* vi,
 	float* dL_dopacity,
-	float* dL_dopacity_weight,
+	float* dL_dvi,
 	float* dL_ddepth,
 	float* dL_dsigma,
 	int P, int D, int M,
@@ -685,7 +681,7 @@ void BACKWARD::preprocess(
 	// The backward render process actually calculates the grad of 
 	// (alpha_weight * opacity_i), which alpha_weight = v_i * (1 - depth/sigma)
 	// so need to recalculate
-	// also calculate the grad of sigma, grad of opacity_weight (v_i), grad of depth
+	// also calculate the grad of sigma, grad of vi (v_i), grad of depth
 	computeGradOpacitySigmaCUDA<<<(P + 255) / 256, 256 >>>(
 		if_depth_correct,
 		P,
@@ -695,7 +691,7 @@ void BACKWARD::preprocess(
 		opacities,
 		vi,
 		dL_dopacity,
-		dL_dopacity_weight,
+		dL_dvi,
 		dL_ddepth,
 		dL_dsigma
 	);
@@ -740,7 +736,7 @@ void BACKWARD::preprocess(
 		projmatrix,
 		campos,
 		sigma,
-		dL_dopacity_weight,
+		dL_dvi,
 		(float3*)dL_dmean2D,
 		(glm::vec3*)dL_dmean3D,
 		dL_dcolor,
@@ -760,7 +756,6 @@ void BACKWARD::render(
 	const float* bg_color,
 	const float2* means2D,
 	const float4* conic_opacity,
-	const float* alpha_weight,
 	const float* colors,
 	const float* weight_sum,
 	const float* dL_dpixels,
@@ -779,7 +774,6 @@ void BACKWARD::render(
 		bg_color,
 		means2D,
 		conic_opacity,
-		alpha_weight,
 		colors,
 		weight_sum,
 		dL_dpixels,

@@ -127,8 +127,6 @@ def loadForward(base_path="test_data/forward_tensors"):
     arg_names_forward = [
             'sigma', 
             'weight_background', 
-            # 'anchors3D',
-            # 'anchor_scales',
             'bg', 
             'means3D', 
             'colors_precomp', 
@@ -158,7 +156,7 @@ def loadBackward():
         "sigma",
         "error_map",
         "render_image",
-        "opacity_weight",
+        "vi",
         "opacities",
         "bg",
         "means3D",

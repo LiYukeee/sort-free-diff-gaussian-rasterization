@@ -182,7 +182,6 @@ __global__ void preprocessCUDA(
 	float* cov3Ds,
 	float* rgb,
 	float4* conic_opacity,
-	float* alpha_weight,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	bool prefiltered)
@@ -226,7 +225,7 @@ __global__ void preprocessCUDA(
 		depth_correct = 1.0f;
 	}
 
-	alpha_weight[idx] = t_vi * depth_correct;	
+	opacity = opacity * t_vi * depth_correct;
 	valid_gs[idx] = true;
 
 	// end filter
@@ -382,44 +381,6 @@ __global__ void filter_preprocessCUDA(int P, int M,
 	radii[idx] = my_radius;
 	
 }
-// Forward version of 2D covariance matrix computation
-__device__ float3 anchor_computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float& level_scale, const float* viewmatrix)
-{
-	// The following models the steps outlined by equations 29
-	// and 31 in "EWA Splatting" (Zwicker et al., 2002). 
-	// Additionally considers aspect / scaling of viewport.
-	// Transposes used to account for row-/column-major conventions.
-	float3 t = transformPoint4x3(mean, viewmatrix);
-
-	const float limx = 1.3f * tan_fovx;
-	const float limy = 1.3f * tan_fovy;
-	const float txtz = t.x / t.z;
-	const float tytz = t.y / t.z;
-	t.x = min(limx, max(-limx, txtz)) * t.z;
-	t.y = min(limy, max(-limy, tytz)) * t.z;
-
-	glm::mat3 J = glm::mat3(
-		focal_x / t.z, 0.0f, -(focal_x * t.x) / (t.z * t.z),
-		0.0f, focal_y / t.z, -(focal_y * t.y) / (t.z * t.z),
-		0, 0, 0);
-
-	glm::mat3 W = glm::mat3(
-		viewmatrix[0], viewmatrix[4], viewmatrix[8],
-		viewmatrix[1], viewmatrix[5], viewmatrix[9],
-		viewmatrix[2], viewmatrix[6], viewmatrix[10]);
-
-	glm::mat3 T = W * J;
-
-	glm::mat3 cov = level_scale * level_scale * glm::transpose(T) * T;
-
-	// Apply low-pass filter: every Gaussian should be at least
-	// one pixel wide/high. Discard 3rd row and column.
-	// printf("Line 188, forward.cu");
-	cov[0][0] += 0.3f;
-	cov[1][1] += 0.3f;
-
-	return { float(cov[0][0]), float(cov[0][1]), float(cov[1][1]) };
-}
 // Main rasterization method. Collaboratively works on one tile per
 // block, each thread treats one pixel. Alternates between fetching 
 // and rasterizing data.
@@ -433,7 +394,6 @@ renderCUDA(
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
 	const float4* __restrict__ conic_opacity,  // opacity
-	const float* __restrict__ alpha_weight,  // Vi * ( 1 - depth/sigma )
 	float* __restrict__ weight_sum,
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color
@@ -462,7 +422,6 @@ renderCUDA(
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
-	__shared__ float collected_alpha_weight[BLOCK_SIZE];
 
 	// Initialize helper variables
 	float alpha_sum = 0.0f;
@@ -484,7 +443,6 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
-			collected_alpha_weight[block.thread_rank()] = alpha_weight[coll_id];
 		}
 		block.sync();
 
@@ -508,8 +466,6 @@ renderCUDA(
 			uint32_t gs_id = collected_id[j];
 
 			
-			alpha *= collected_alpha_weight[j];
-
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[gs_id * CHANNELS + ch] * alpha;
@@ -543,7 +499,6 @@ void FORWARD::render(
 	const float2* means2D,
 	const float* colors,
 	const float4* conic_opacity,
-	const float* alpha_weight,
 	float* weight_sum,
 	const float* bg_color,
 	float* out_color
@@ -557,7 +512,6 @@ void FORWARD::render(
 		means2D,
 		colors,
 		conic_opacity,
-		alpha_weight,
 		weight_sum,
 		bg_color,
 		out_color
@@ -592,7 +546,6 @@ void FORWARD::preprocess(
 	float* cov3Ds,
 	float* rgb,
 	float4* conic_opacity,
-	float* alpha_weight,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	bool prefiltered)
@@ -624,7 +577,6 @@ void FORWARD::preprocess(
 		cov3Ds,
 		rgb,
 		conic_opacity,
-		alpha_weight,
 		grid,
 		tiles_touched,
 		prefiltered
